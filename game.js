@@ -1,9 +1,6 @@
-function isMobile() {
-  return /Android|iPhone|iPad|iPod|Windows Phone/i.test(navigator.userAgent);
-}
-
 var config = {
   type: Phaser.AUTO,
+  transparent: true,
   dom: {
     createContainer: true,
   },
@@ -24,11 +21,24 @@ var config = {
   render: {
     pixelArt: true,
     antialias: true,
-    roundPixels: true,
+    roundPixels: false,
     willReadFrequently: true,
+    transparent: true,
   },
   scene: [Puzzle1, Puzzle2, Puzzle3],
 };
+
+function getViewportHeight() {
+  return window.visualViewport
+    ? window.visualViewport.height
+    : window.innerHeight;
+}
+
+function isPortraitOrientation() {
+  const byMedia = window.matchMedia("(orientation: portrait)").matches;
+  const bySize = window.innerHeight > window.innerWidth;
+  return byMedia || bySize;
+}
 
 // Crear el contenedor del juego
 const gameContainer = document.createElement("div");
@@ -38,13 +48,24 @@ document.body.appendChild(gameContainer);
 // Crear el juego
 var game = new Phaser.Game(config);
 
-// Manejar la orientación en móviles
-if (isMobile()) {
-  window.addEventListener("resize", function () {
-    if (window.innerHeight > window.innerWidth) {
-      document.getElementById("turn").style.display = "flex";
-    } else {
-      document.getElementById("turn").style.display = "none";
-    }
-  });
+function updateLayoutForDevice() {
+  const viewportHeight = getViewportHeight();
+  gameContainer.style.height = `${viewportHeight}px`;
+
+  const turnElement = document.getElementById("turn");
+  if (turnElement) {
+    turnElement.style.display = isPortraitOrientation() ? "flex" : "none";
+  }
+
+  if (game && game.scale) {
+    game.scale.refresh();
+  }
 }
+
+window.addEventListener("resize", updateLayoutForDevice);
+window.addEventListener("orientationchange", updateLayoutForDevice);
+if (window.visualViewport) {
+  window.visualViewport.addEventListener("resize", updateLayoutForDevice);
+}
+
+updateLayoutForDevice();

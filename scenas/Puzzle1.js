@@ -4,149 +4,190 @@ class Puzzle1 extends Phaser.Scene {
   }
   preload() {
     this.load.audio("musica1", "components/musica1.mp3");
+    this.load.image("bgLogo", "roblogo.png");
   }
   create() {
-    this.cameras.main.setBackgroundColor(0xdef3ff);
+    this.cameras.main.setBackgroundColor(0xffe5d9); // Un color melocotón suave en lugar del blanco/azul pálido
+    this.createLogoBackground();
+    this.createAmbientBackground();
     this.audioManager = new AudioManager(this, "musica1", {
       defaultVolume: 0.4,
       x: this.scale.width - 220,
       y: 30,
       panelWidth: 200,
       panelHeight: 50,
-      primaryColor: 0x00cec9,
-      secondaryColor: 0x2d3436,
+      primaryColor: 0x6ca9d9,
+      secondaryColor: 0x5f84bc,
       textColor: "#ffffff",
     });
-    this.elements = [];
-    this.hand = this.add
-      .text(0, 0, "👆🏻", { fontFamily: "Nunito, Arial", fontSize: "44px" })
-      .setOrigin(0.5)
-      .setDepth(1000);
-    this.handTween = null;
-    this.setup();
+    this.add
+      .text(this.scale.width / 2, 62, "🤖🧠🔋", {
+        fontFamily: "Fredoka One, Arial",
+        fontSize: "64px",
+        color: "#2d3436",
+        stroke: "#ffffff",
+        strokeThickness: 8,
+      })
+      .setOrigin(0.5);
+    this.revealed = [];
+    this.lockInput = false;
+    this.createBoard();
   }
-  setup() {
-    const bins = [
-      { color: "red", x: 220, y: 330 },
-      { color: "blue", x: 500, y: 330 },
-      { color: "green", x: 780, y: 330 },
-    ];
-    const piecesData = [
-      { color: "red", x: 220, y: 180 },
-      { color: "red", x: 340, y: 180 },
-      { color: "blue", x: 500, y: 180 },
-      { color: "blue", x: 620, y: 180 },
-      { color: "green", x: 780, y: 180 },
-      { color: "green", x: 900, y: 180 },
-    ];
-    this.binZones = {};
-    bins.forEach((b) => {
-      const binDom = this.createBin(b.color);
-      binDom.setPosition(b.x, b.y);
-      const zone = this.add.zone(b.x, b.y, 200, 130).setInteractive();
-      this.elements.push(binDom, zone);
-      this.binZones[b.color] = zone;
-    });
-    this.pieces = [];
-    piecesData.forEach((p) => {
-      const piece = this.createPiece(p.color);
-      piece.setPosition(p.x, p.y);
-      piece.setData("color", p.color);
-      this.elements.push(piece);
-      this.pieces.push(piece);
-      piece.on("drag", (pointer, dx, dy) => piece.setPosition(dx, dy));
-      piece.on("dragend", () => {
-        const zone = this.binZones[piece.getData("color")];
-        const dist = Phaser.Math.Distance.Between(
-          piece.x,
-          piece.y,
-          zone.x,
-          zone.y,
-        );
-        if (dist < 80) {
-          piece.setPosition(
-            zone.x + Phaser.Math.Between(-40, 40),
-            zone.y + Phaser.Math.Between(-30, 30),
-          );
-          piece.disableInteractive();
-          const remaining = this.pieces.filter(
-            (o) => o.input && o.input.enabled,
-          );
-          if (remaining.length === 0) {
-            this.confetti();
-            this.time.delayedCall(1200, () => this.scene.start("Puzzle2"));
-          } else {
-            const next = remaining[0];
-            const target = this.binZones[next.getData("color")];
-            this.moveHand(next.x, next.y - 60, target.x, target.y - 60);
-          }
-        } else {
-          this.tweens.add({
-            targets: piece,
-            x: p.x,
-            y: p.y,
-            duration: 250,
-            ease: "Back.out",
-          });
+  createBoard() {
+    const symbols = ["🪥", "🚿", "🍽️", "🛏️"];
+    const deck = Phaser.Utils.Array.Shuffle([...symbols, ...symbols]);
+    const startX = 300;
+    const startY = 170;
+    const gapX = 135;
+    const gapY = 140;
+    this.cards = [];
+    for (let i = 0; i < deck.length; i++) {
+      const col = i % 4;
+      const row = Math.floor(i / 4);
+      const x = startX + col * gapX;
+      const y = startY + row * gapY;
+      const card = this.createCard(x, y, deck[i]);
+      this.cards.push(card);
+    }
+  }
+  createCard(x, y, symbol) {
+    const back = this.add
+      .rectangle(0, 0, 110, 124, 0x77a8d9, 1)
+      .setStrokeStyle(4, 0xffffff);
+    const sparkle = this.add
+      .text(0, 0, "🤖", {
+        fontFamily: "Nunito, Arial",
+        fontSize: "46px",
+      })
+      .setOrigin(0.5);
+    const front = this.add
+      .rectangle(0, 0, 110, 124, 0xffffff, 0.92)
+      .setStrokeStyle(4, 0x4f6d94);
+    const icon = this.add
+      .text(0, 0, symbol, {
+        fontFamily: "Nunito, Arial",
+        fontSize: "56px",
+      })
+      .setOrigin(0.5);
+    front.setVisible(false);
+    icon.setVisible(false);
+    const container = this.add
+      .container(x, y, [back, sparkle, front, icon])
+      .setSize(110, 124);
+    container.setData("symbol", symbol);
+    container.setData("back", back);
+    container.setData("sparkle", sparkle);
+    container.setData("front", front);
+    container.setData("icon", icon);
+    container.setData("matched", false);
+    container.setData("revealed", false);
+    container.setInteractive();
+    container.on("pointerdown", () => this.onCardTap(container));
+    return container;
+  }
+  onCardTap(card) {
+    if (this.lockInput) return;
+    if (card.getData("matched")) return;
+    if (card.getData("revealed")) return;
+    this.flipCard(card, true);
+    this.revealed.push(card);
+    if (this.revealed.length < 2) return;
+    const [a, b] = this.revealed;
+    this.lockInput = true;
+    if (a.getData("symbol") === b.getData("symbol")) {
+      this.time.delayedCall(220, () => {
+        a.setData("matched", true);
+        b.setData("matched", true);
+        this.pulse(a);
+        this.pulse(b);
+        this.revealed = [];
+        this.lockInput = false;
+        const pending = this.cards.filter((c) => !c.getData("matched"));
+        if (pending.length === 0) {
+          this.confetti(1600);
+          this.time.delayedCall(1300, () => this.scene.start("Puzzle2"));
         }
       });
+      return;
+    }
+    this.time.delayedCall(620, () => {
+      this.flipCard(a, false);
+      this.flipCard(b, false);
+      this.revealed = [];
+      this.lockInput = false;
     });
-    const first = this.pieces[0];
-    const targetFirst = this.binZones[first.getData("color")];
-    this.moveHand(first.x, first.y - 60, targetFirst.x, targetFirst.y - 60);
   }
-  createPiece(color) {
-    let bg = "";
-    if (color === "red") bg = "linear-gradient(145deg,#ff7675,#d63031)";
-    else if (color === "blue") bg = "linear-gradient(145deg,#74b9ff,#0984e3)";
-    else bg = "linear-gradient(145deg,#55efc4,#00b894)";
-    const style = `
-      width: 90px; height: 90px;
-      border-radius: 50%;
-      background: ${bg};
-      box-shadow: 0 10px 16px rgba(0,0,0,0.25);
-    `;
-    const div = document.createElement("div");
-    div.setAttribute("style", style);
-    const dom = this.add.dom(0, 0, div).setOrigin(0.5).setDepth(5);
-    dom.setInteractive();
-    this.input.setDraggable(dom);
-    return dom;
-  }
-  createBin(color) {
-    let bg = "";
-    if (color === "red") bg = "linear-gradient(145deg,#ffadad,#ff6b6b)";
-    else if (color === "blue") bg = "linear-gradient(145deg,#a5d8ff,#74b9ff)";
-    else bg = "linear-gradient(145deg,#a8e6cf,#55efc4)";
-    const style = `
-      width: 200px; height: 130px;
-      border-radius: 20px;
-      background: ${bg};
-      box-shadow: inset 0 0 12px rgba(0,0,0,0.25), 0 8px 12px rgba(0,0,0,0.15);
-    `;
-    const div = document.createElement("div");
-    div.setAttribute("style", style);
-    const dom = this.add.dom(0, 0, div).setOrigin(0.5).setDepth(4);
-    return dom;
-  }
-  moveHand(fromX, fromY, toX, toY) {
-    this.hand.setPosition(fromX, fromY);
-    if (this.handTween) this.handTween.stop();
-    this.handTween = this.tweens.add({
-      targets: this.hand,
-      x: toX,
-      y: toY,
-      duration: 800,
+  flipCard(card, reveal) {
+    card.setData("revealed", reveal);
+    this.tweens.add({
+      targets: card,
+      scaleX: 0.08,
+      duration: 110,
       ease: "Sine.inOut",
-      yoyo: true,
-      repeat: -1,
+      onComplete: () => {
+        card.getData("back").setVisible(!reveal);
+        card.getData("sparkle").setVisible(!reveal);
+        card.getData("front").setVisible(reveal);
+        card.getData("icon").setVisible(reveal);
+        this.tweens.add({
+          targets: card,
+          scaleX: 1,
+          duration: 110,
+          ease: "Sine.inOut",
+        });
+      },
     });
+  }
+  pulse(target) {
+    this.tweens.add({
+      targets: target,
+      scaleX: 1.08,
+      scaleY: 1.08,
+      duration: 140,
+      yoyo: true,
+      ease: "Sine.inOut",
+    });
+  }
+  createLogoBackground() {
+    const logo = this.add
+      .image(this.scale.width / 2, this.scale.height / 2, "bgLogo")
+      .setDepth(-2)
+      .setAlpha(0.5); // Aumentamos la opacidad para que sea más visible como fondo
+    const ratio = Math.max(
+      this.scale.width / logo.width,
+      this.scale.height / logo.height,
+    );
+    logo.setScale(ratio); // Ajustamos a la escala completa para que sea fondo real (tipo "cover")
+  }
+  createAmbientBackground() {
+    const palette = [0xddeeff, 0xe7f4df, 0xf9ecd8, 0xe4e3f7, 0xe0eef8];
+    for (let i = 0; i < 14; i++) {
+      const bubble = this.add
+        .circle(
+          Phaser.Math.Between(30, this.scale.width - 30),
+          Phaser.Math.Between(30, this.scale.height - 30),
+          Phaser.Math.Between(16, 64),
+          palette[i % palette.length],
+          0.46,
+        )
+        .setDepth(-1);
+      this.tweens.add({
+        targets: bubble,
+        x: bubble.x + Phaser.Math.Between(-34, 34),
+        y: bubble.y + Phaser.Math.Between(-34, 34),
+        alpha: Phaser.Math.FloatBetween(0.24, 0.58),
+        duration: Phaser.Math.Between(1400, 3200),
+        yoyo: true,
+        repeat: -1,
+        ease: "Sine.inOut",
+      });
+    }
   }
   confetti(duration = 1200) {
     const colors = [0xe74c3c, 0xf1c40f, 0x2ecc71, 0x3498db, 0x9b59b6, 0x1abc9c];
-    for (let i = 0; i < 120; i++) {
+    for (let i = 0; i < 110; i++) {
       const x = Phaser.Math.Between(0, this.scale.width);
-      const y = -Phaser.Math.Between(0, 200);
+      const y = -Phaser.Math.Between(0, 180);
       const w = Phaser.Math.Between(6, 14);
       const h = Phaser.Math.Between(8, 18);
       const color = colors[Phaser.Math.Between(0, colors.length - 1)];
@@ -157,7 +198,7 @@ class Puzzle1 extends Phaser.Scene {
         y: this.scale.height + 30,
         x: x + Phaser.Math.Between(-80, 80),
         rotation: rect.rotation + Phaser.Math.FloatBetween(1, 4),
-        duration: duration + Phaser.Math.Between(-300, 300),
+        duration: duration + Phaser.Math.Between(-280, 280),
         ease: "Quad.out",
         onComplete: () => rect.destroy(),
       });
